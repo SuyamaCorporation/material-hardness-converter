@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Material Hardness Converter</title>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 min-h-screen">
+<div class="max-w-5xl mx-auto p-4">
+  <header class="text-center py-6">
+    <h1 class="text-3xl font-bold text-slate-800">🔩 Material Hardness Scale Converter</h1>
+    <p class="text-slate-600 mt-1">Convert between Mohs, Rockwell (HRC/HRB), Brinell (HBW), Vickers (HV), and Shore</p>
+  </header>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Converter -->
+    <div class="space-y-4">
+      <div class="bg-white rounded-2xl shadow p-5 border border-slate-200">
+        <h2 class="font-semibold text-slate-700 mb-4">Convert Hardness</h2>
+        <div class="space-y-3">
+          <div>
+            <label class="text-xs font-medium text-gray-600">Input Scale</label>
+            <select id="inputScale" onchange="convert()" class="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400">
+              <option value="mohs">Mohs (0–10)</option>
+              <option value="hrc" selected>Rockwell C (HRC)</option>
+              <option value="hrb">Rockwell B (HRB)</option>
+              <option value="hbw">Brinell (HBW)</option>
+              <option value="hv">Vickers (HV)</option>
+              <option value="shore_d">Shore D</option>
+            </select>
+          </div>
+          <div>
+            <label class="text-xs font-medium text-gray-600">Input Value</label>
+            <input id="inputValue" type="number" value="60" oninput="convert()" class="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-400">
+          </div>
+          <div id="conversionResults" class="space-y-2 mt-4"></div>
+        </div>
+      </div>
+
+      <!-- Quick Lookup -->
+      <div class="bg-white rounded-2xl shadow p-4 border border-slate-200">
+        <h2 class="font-semibold text-slate-700 mb-3">Common Materials</h2>
+        <div class="space-y-1" id="materialQuickList"></div>
+      </div>
+    </div>
+
+    <!-- Main Panel -->
+    <div class="lg:col-span-2 space-y-4">
+      <!-- Scale Visualization -->
+      <div class="bg-white rounded-2xl shadow p-5 border border-slate-200">
+        <h2 class="font-semibold text-slate-700 mb-4">Hardness Scale Visualization</h2>
+        <div id="scaleViz"></div>
+      </div>
+
+      <!-- Material Database -->
+      <div class="bg-white rounded-2xl shadow p-5 border border-slate-200">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="font-semibold text-slate-700">Material Reference Database</h2>
+          <input id="materialSearch" type="text" placeholder="Search..." oninput="renderMaterialDB()" class="border border-gray-300 rounded-lg px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 w-36">
+        </div>
+        <div class="overflow-x-auto">
+          <div id="materialTable"></div>
+        </div>
+      </div>
+
+      <!-- Conversion Table -->
+      <div class="bg-white rounded-2xl shadow p-5 border border-slate-200">
+        <h2 class="font-semibold text-slate-700 mb-3">Scale Comparison Table</h2>
+        <div id="comparisonTable" class="overflow-x-auto"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Approximate conversion formulas (ASTM E140 / EN ISO 18265 standard approximations)
+// These are piecewise approximations — exact values vary by material
+
+const MATERIALS = [
+  {name:'Diamond',mohs:10,hv:7000,hrc:null,hbw:null,category:'mineral',use:'Cutting tools, grinding'},
+  {name:'Corundum (Sapphire)',mohs:9,hv:2000,hrc:null,hbw:null,category:'mineral',use:'Abrasives, bearings'},
+  {name:'Topaz',mohs:8,hv:1650,hrc:null,hbw:null,category:'mineral',use:'Abrasives'},
+  {name:'Quartz',mohs:7,hv:1100,hrc:null,hbw:null,category:'mineral',use:'Electronics, optics'},
+  {name:'Orthoclase',mohs:6,hv:600,hrc:null,hbw:null,category:'mineral',use:'Ceramics'},
+  {name:'Apatite',mohs:5,hv:540,hrc:null,hbw:null,category:'mineral',use:'Bone/tooth analog'},
+  {name:'Fluorite',mohs:4,hv:188,hrc:null,hbw:null,category:'mineral',use:'Optics'},
+  {name:'Calcite',mohs:3,hv:109,hrc:null,hbw:null,category:'mineral',use:'Construction'},
+  {name:'Gypsum',mohs:2,hv:36,hrc:null,hbw:null,category:'mineral',use:'Plaster'},
+  {name:'Talc',mohs:1,hv:10,hrc:null,hbw:null,category:'mineral',use:'Lubricant, cosmetics'},
+  {name:'High-Speed Steel (HSS)',mohs:null,hv:800,hrc:64,hbw:null,category:'steel',use:'Cutting tools, drills'},
+  {name:'D2 Tool Steel',mohs:null,hv:750,hrc:60,hbw:null,category:'steel',use:'Dies, punches, blades'},
+  {name:'Case-Hardened Steel',mohs:null,hv:700,hrc:58,hbw:null,category:'steel',use:'Gears, bearings'},
+  {name:'File-Hard Steel',mohs:null,hv:650,hrc:56,hbw:null,category:'steel',use:'Files, springs'},
+  {name:'Stainless Steel 304',mohs:null,hv:200,hrc:null,hbw:187,category:'steel',use:'Kitchen, medical'},
+  {name:'Mild Steel (A36)',mohs:null,hv:130,hrc:null,hbw:126,category:'steel',use:'Construction, welding'},
+  {name:'Annealed Copper',mohs:null,hv:60,hrc:null,hbw:55,category:'metal',use:'Electrical wiring'},
+  {name:'Brass (70/30)',mohs:null,hv:90,hrc:null,hbw:87,category:'metal',use:'Plumbing, musical inst.'},
+  {name:'Aluminum 6061',mohs:null,hv:107,hrc:null,hbw:100,category:'metal',use:'Aerospace, automotive'},
+  {name:'Titanium Grade 5',mohs:null,hv:350,hrc:36,hbw:null,category:'metal',use:'Aerospace, implants'},
+  {name:'Cast Iron (Gray)',mohs:null,hv:220,hrc:null,hbw:200,category:'metal',use:'Engine blocks, pipes'},
+  {name:'Hardened Chromium',mohs:null,hv:900,hrc:68,hbw:null,category:'metal',use:'Plating, dies'},
+  {name:'Rubber (Hard)',mohs:null,hv:null,hrc:null,hbw:null,shore_d:80,category:'polymer',use:'Tires, seals'},
+  {name:'HDPE Plastic',mohs:null,hv:null,hrc:null,hbw:null,shore_d:65,category:'polymer',use:'Pipes, containers'},
+  {name:'Acrylic (PMMA)',mohs:null,hv:200,hrc:null,hbw:null,shore_d:90,category:'polymer',use:'Lenses, displays'},
+];
+
+// Conversion functions (approximate)
+function hvToHrc(hv) {
+  if (hv < 241) return null;
+  // Polynomial approximation
+  if (hv >= 940) return 68;
+  return Math.round(-0.0000013 * hv**2 + 0.0548 * hv + 6.4);
+}
+
+function hrcToHv(hrc) {
+  if (hrc < 20) return null;
+  return Math.round(0.0008 * hrc**3 + 0.0043 * hrc**2 + 4.78 * hrc + 72);
+}
+
+function hvToHbw(hv) {
+  if (hv > 650) return null; // HBW scale limit
+  return Math.round(hv * 0.95 - 2); // approximation
+}
+
+function hbwToHv(hbw) {
+  return Math.round((hbw + 2) / 0.95);
+}
+
+function hvToHrb(hv) {
+  if (hv > 240 || hv < 60) return null;
+  return Math.round(0.0022 * hv**2 - 0.1166 * hv + 79.5); // approximation
+}
+
+function mohsToHv(mohs) {
+  // Empirical mapping
+  const map = {1:10,2:36,3:109,4:188,5:540,6:600,7:1100,8:1650,9:2000,10:7000};
+  return map[Math.round(mohs)] || null;
+}
+
+function hvToMohs(hv) {
+  const map = [[10,0.9],[36,1.5],[109,2.5],[188,3.5],[540,4.5],[600,5.5],[1100,6.5],[1650,7.5],[2000,8.5],[7000,9.5]];
+  for (let i = map.length - 1; i >= 0; i--) {
+    if (hv >= map[i][0]) return i + 1;
+  }
+  return 1;
+}
+
+function convert() {
+  const scale = document.getElementById('inputScale').value;
+  const val = parseFloat(document.getElementById('inputValue').value);
+  if (isNaN(val)) return;
+
+  let hv = null;
+  if (scale === 'hv') hv = val;
+  else if (scale === 'hrc') hv = hrcToHv(val);
+  else if (scale === 'hrb') hv = hbwToHv(val * 0.95);
+  else if (scale === 'hbw') hv = hbwToHv(val);
+  else if (scale === 'mohs') hv = mohsToHv(val);
+  else if (scale === 'shore_d') hv = val * 2.5; // rough approximation
+
+  if (!hv) { document.getElementById('conversionResults').innerHTML = '<p class="text-red-500 text-xs">Value out of range for conversion</p>'; return; }
+
+  const results = [
+    { label: 'Vickers (HV)', value: hv, unit: '' },
+    { label: 'Rockwell C (HRC)', value: hvToHrc(hv), unit: '' },
+    { label: 'Rockwell B (HRB)', value: hvToHrb(hv), unit: '' },
+    { label: 'Brinell (HBW)', value: hvToHbw(hv), unit: '' },
+    { label: 'Mohs (approx)', value: hvToMohs(hv), unit: '/10' },
+  ];
+
+  document.getElementById('conversionResults').innerHTML = results.map(r => `
+    <div class="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
+      <span class="text-xs text-gray-500">${r.label}</span>
+      <span class="text-sm font-bold text-slate-700">${r.value !== null ? r.value + r.unit : '—'}</span>
+    </div>`).join('');
+
+  renderScaleViz(hv);
+}
+
+function renderScaleViz(currentHv) {
+  const container = document.getElementById('scaleViz');
+  const scales = [
+    { label: 'Mohs', min: 1, max: 10, val: hvToMohs(currentHv), color: '#60a5fa' },
+    { label: 'HRC', min: 20, max: 70, val: hvToHrc(currentHv), color: '#f59e0b' },
+    { label: 'HBW', min: 50, max: 650, val: hvToHbw(currentHv), color: '#10b981' },
+    { label: 'HV', min: 50, max: 2000, val: currentHv, color: '#8b5cf6' },
+  ];
+
+  container.innerHTML = scales.map(s => {
+    if (s.val === null) return '';
+    const pct = Math.min(100, Math.max(0, ((s.val - s.min) / (s.max - s.min)) * 100));
+    return `<div class="mb-3">
+      <div class="flex justify-between text-xs mb-1">
+        <span class="text-gray-500">${s.label}</span>
+        <span class="font-bold" style="color:${s.color}">${s.val}</span>
+        <span class="text-gray-400">(${s.min}–${s.max})</span>
+      </div>
+      <div class="h-4 bg-gray-100 rounded-full overflow-visible relative">
+        <div class="h-full rounded-l-full transition-all" style="width:${pct}%;background:${s.color}"></div>
+        <div class="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-white border-2 transition-all" style="left:calc(${pct}% - 6px);border-color:${s.color}"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderMaterialDB() {
+  const search = document.getElementById('materialSearch').value.toLowerCase();
+  const filtered = search ? MATERIALS.filter(m => m.name.toLowerCase().includes(search) || m.category.includes(search) || m.use.toLowerCase().includes(search)) : MATERIALS;
+
+  const CAT_COLORS = { mineral:'bg-blue-50 text-blue-700', steel:'bg-gray-50 text-gray-700', metal:'bg-yellow-50 text-yellow-700', polymer:'bg-green-50 text-green-700' };
+
+  document.getElementById('materialTable').innerHTML = `<table class="w-full text-xs">
+    <thead><tr class="bg-slate-50 text-gray-500">
+      <th class="text-left px-2 py-2">Material</th>
+      <th class="text-center px-2 py-2">Mohs</th>
+      <th class="text-center px-2 py-2">HV</th>
+      <th class="text-center px-2 py-2">HRC</th>
+      <th class="text-center px-2 py-2">HBW</th>
+      <th class="text-left px-2 py-2 hidden md:table-cell">Applications</th>
+    </tr></thead>
+    <tbody>
+      ${filtered.map(m => `<tr class="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" onclick="lookupMaterial('${m.name}')">
+        <td class="px-2 py-1.5">
+          <span class="font-medium text-slate-800">${m.name}</span>
+          <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full ${CAT_COLORS[m.category] || 'bg-gray-100'}">${m.category}</span>
+        </td>
+        <td class="px-2 py-1.5 text-center">${m.mohs !== null ? m.mohs : '—'}</td>
+        <td class="px-2 py-1.5 text-center">${m.hv !== null ? m.hv : '—'}</td>
+        <td class="px-2 py-1.5 text-center">${m.hrc !== null ? m.hrc : m.hv ? (hvToHrc(m.hv) || '—') : '—'}</td>
+        <td class="px-2 py-1.5 text-center">${m.hbw !== null ? m.hbw : m.hv ? (hvToHbw(m.hv) || '—') : '—'}</td>
+        <td class="px-2 py-1.5 text-gray-500 hidden md:table-cell">${m.use}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+function lookupMaterial(name) {
+  const m = MATERIALS.find(x => x.name === name);
+  if (!m) return;
+  if (m.hv) {
+    document.getElementById('inputScale').value = 'hv';
+    document.getElementById('inputValue').value = m.hv;
+  } else if (m.hrc) {
+    document.getElementById('inputScale').value = 'hrc';
+    document.getElementById('inputValue').value = m.hrc;
+  } else if (m.mohs) {
+    document.getElementById('inputScale').value = 'mohs';
+    document.getElementById('inputValue').value = m.mohs;
+  }
+  convert();
+}
+
+function renderQuickList() {
+  const quick = ['Diamond','Quartz','High-Speed Steel (HSS)','Stainless Steel 304','Mild Steel (A36)','Aluminum 6061','Annealed Copper'];
+  document.getElementById('materialQuickList').innerHTML = quick.map(name => {
+    const m = MATERIALS.find(x => x.name === name);
+    return `<button onclick="lookupMaterial('${name}')" class="w-full text-left text-xs bg-slate-50 hover:bg-slate-100 rounded-lg px-3 py-1.5 transition border border-slate-200">
+      <span class="font-medium text-slate-700">${name}</span>
+      ${m?.mohs ? `<span class="text-slate-400 ml-1">Mohs ${m.mohs}</span>` : ''}
+      ${m?.hv ? `<span class="text-slate-400 ml-1">HV ${m.hv}</span>` : ''}
+    </button>`;
+  }).join('');
+}
+
+function renderComparisonTable() {
+  const rows = [68,65,62,60,58,55,52,48,45,40,35,30,25,20].map(hrc => {
+    const hv = hrcToHv(hrc);
+    const hbw = hvToHbw(hv);
+    return {hrc,hv,hbw,mohs:hvToMohs(hv)};
+  });
+
+  document.getElementById('comparisonTable').innerHTML = `<table class="w-full text-xs text-center">
+    <thead><tr class="bg-slate-50 text-gray-500 font-semibold">
+      <th class="px-3 py-2">HRC</th>
+      <th class="px-3 py-2">HV</th>
+      <th class="px-3 py-2">HBW</th>
+      <th class="px-3 py-2">Mohs (≈)</th>
+    </tr></thead>
+    <tbody>
+      ${rows.map(r => `<tr class="border-t border-slate-100 hover:bg-slate-50">
+        <td class="px-3 py-1.5 font-bold text-amber-700">${r.hrc}</td>
+        <td class="px-3 py-1.5 text-purple-700">${r.hv}</td>
+        <td class="px-3 py-1.5 text-emerald-700">${r.hbw || '>'}</td>
+        <td class="px-3 py-1.5 text-blue-700">${r.mohs}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+renderQuickList();
+renderMaterialDB();
+renderComparisonTable();
+convert();
+</script>
+</body>
+</html>
